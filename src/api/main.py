@@ -24,6 +24,10 @@ from src.core.config import get_settings
 from src.schemas.chat import ChatRequest, ChatResponse
 
 
+from contextlib import asynccontextmanager, contextmanager
+from database.session import engine, init_db
+
+
 
 settings = get_settings()
 
@@ -33,11 +37,34 @@ logger = logging.getLogger(__name__)
 
 client = OpenAI(api_key = settings.openai_api_key)
 
+
+@asynccontextmanager
+async def lifespan(_:FastAPI):
+    """
+    Handle application startup and shutdown events.
+    """
+    # Initialize database connection
+    try:
+        await  init_db()
+    except Exception as e:
+        logger.exception(f"database_initialization_failed: {e}")
+
+
+    # Other startup operations within the lifespan will be added later on ...
+
+    yield
+
+    # Cleanup and shutdown
+    await engine.dispose() # Dispose of the database engine during the server shutdown process. Any code after yield is executed when the server shutdown is requested
+
+
+
+
 app = FastAPI(
    # title= settings.project_name,
     version= settings.version,
     description= settings.description,
-
+    lifespan= lifespan
 
 )
 
