@@ -12,6 +12,8 @@ from fastapi import (
     FastAPI,
     Request,
     status,
+    Depends,
+    HTTPException,
 )
 from fastapi.routing import JSONResponse
 
@@ -25,7 +27,16 @@ from src.schemas.chat import ChatRequest, ChatResponse
 
 
 from contextlib import asynccontextmanager, contextmanager
-from database.session import engine, init_db
+from src.database.session import engine, init_db
+
+
+
+# CRUD endpoints
+from typing import Annotated
+from src.database.session import DBSessionDep
+from src.database.entities import Conversation
+from src.schemas.database import ConversationCreate, ConversationOut, ConversationUpdate
+from sqlalchemy import select
 
 
 
@@ -47,7 +58,7 @@ async def lifespan(_:FastAPI):
     try:
         await  init_db()
     except Exception as e:
-        logger.exception(f"database_initialization_failed: {e}")
+        logger.exception("database_initialization_failed")
 
 
     # Other startup operations within the lifespan will be added later on ...
@@ -78,7 +89,7 @@ async def root(request: Request) -> dict[str, str]:
         "version": settings.version,
         "status": "healthy",
         "environment": settings.app_env,
-        "swagger_url": "/doc"
+        "docs_url": "/docs",
     }
 
 
@@ -152,8 +163,112 @@ async def chat(body: ChatRequest, request: Request ) -> ChatResponse:
     )
 
 
+
+
+"""
+Implementing resource-based CRUD endpoints fot the conversation tables
+"""
+
+
+# Define a dependency to check if the conversation record exists. Raise a 404 HTTPException if a record is not found; otherwise return the retrieved record
+# This dependency can be reused across several CRUD endpoints through dependency injection
+async def get_conversation(
+    conversation_id: int,
+    session: DBSessionDep
+) -> Conversation:
+    # Begin the async session within an async context manager during each request
+    async with session.begin():
+        result = await session.execute(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )
+
+        conversation = result.scalars().first()
+
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+
+        return conversation
+
+
+GetConversationDep = Annotated[Conversation, Depends(get_conversation)]
+
+
+
+@app.get("/conversations")
+async def list_conversations_controller(
+    session: DBSessionDep,
+    skip: int = 0,
+    take: int = 100
+) -> list[ConversationOut]:
+
+    async with session.begin():
+        result = await session.execute(
+            select(Conversation).offset(skip).limit(take)
+        )
+        # When listing records, it is more efficient to retrieve only a subset of records. By default, SQLAlchemy ORM returns a subset of most recent records in the database
+        # But I can use the .offset(skip) and .limit(take) chained methods to retrieve any subset records
+    return [
+        ConversationOut.model_validate(conversation)
+        for conversation in result.scalars().all() ]
+
+
+
+@app.get("/conversations/{id}")
+async def list_conversations_controller(
+    conversation: GetConversationDep,
+) -> ConversationOut:
+    return ConversationOut.model_validate(conversation)  #Create a Pydantic model from SQLAlchemy model using model_validate. Raises a ValidationError if the SQLAlchemy object passed can’t be created or doesn’t pass Pydantic’s data validation checks.
+
+
+
+
+@app.post("/conversations", status_code=status.HTTP_201_CREATED)
+async def create_conversation_controller(
+    conversation: ConversationCreate,
+    session: DBSessionDep,
+) -> ConversationOut:
+    new_conversation = Conversation(**conversation.model_dump())
+
+    async with session.begin():
+        session.add(new_conversation)
+        await session.commit() # For operations (Create, Update , Delete) - commit the transaction then send the refreshed record to the client, except for the successful delete operation that should return None
+        await session.refresh(new_conversation)
+
+    return ConversationOut.model_validate(new_conversation)
+
+
+@app.put("/conversation/{id}")
+async def update_conversation_controller(
+    updated_conversation: ConversationUpdate,
+    conversation: GetConversationDep,
+    session: DBSessionDep,
+) -> ConversationOut:
+    for key, value in updated_conversation.model_dump().items():
+        setattr(conversation, key, value)
+    
+    async with session.begin():
+        await session.commit()
+        await session.refresh(conversation)
+
+    return ConversationOut.model_validate(conversation)
+
+
+
+@app.delete("/conversation/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation_controller(
+    conversation: GetConversationDep,
+    session: DBSessionDep
+) -> None:
+    async with session.begin():
+        await session.delete(conversation)
+        await session.commit()
+
 if __name__ == "__main__":
     import uvicorn
+    import asyncio
     # Use reload in development only. In production, remove it.
     # Open the auto-generated API docs at http://localhost:8000/docs.
-    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)
+    asyncio.run(uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000), loop_factory=asyncio.SelectorEventLoop)

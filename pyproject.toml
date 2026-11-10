@@ -11,8 +11,11 @@ dependencies = [
     "langchain>=1.4.7",
     "langchain-core>=1.7.0",
     "langchain-openai>=1.7.3",
+    "langchain-tavily>=0.2.18",
     "langgraph>=1.2.18",
     "openai>=3.42.0",
+    "psycopg[binary,library]>=3.3.8",
     "requests>=2.34.2",
-    "sqlalchemy>=2.1.6",
+    "sqlalchemy[asyncio]>=2.1.6",
+    "tavily-python>=0.8.5",
 ]

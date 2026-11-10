@@ -11,9 +11,9 @@ Create the SQLAlchemy database engine
 
 """
 
-from curses import echo
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from entities import Base
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker #AsyncSession is the object I use to read and write data (add, get, execute commit) with await.
+from src.database.entities import Base
 
 from typing import Annotated
 from fastapi import Depends
@@ -67,3 +67,10 @@ async def get_db_session():
     finally:
         # In any case, close the database session dependency that can be reused across different controllers
         await session.close()
+
+
+
+# Declare an annotated database session dependency that can be reused across different controllers
+# Give me database session ~ Which FastAPI creates and closes for us
+DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+# Depends(get_db_session) - tells FastAPI to call get_db_session() before running the endpoint and pass in whatever it returns
