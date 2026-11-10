@@ -494,7 +494,7 @@ def quality_checker(state: ResearchState) -> dict:
     ])
 
 
-    # Force approve after 2 iterations to prevent infinite loops
+    # Force approve after 2 iterations to prevent infinite loops - Circuit breaker
     approved = review.approved or state['iteration'] >=2
     return {
         "quality_socre": review.score,
