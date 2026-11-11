@@ -494,7 +494,7 @@ def quality_checker(state: ResearchState) -> dict:
     ])
 
 
-    # Force approve after 2 iterations to prevent infinite loops - Circuit breaker
+    # Force approve after 2 iterations to prevent infinite loops - Circuit breaker - In Production I tune it based on cost
     approved = review.approved or state['iteration'] >=2
     return {
         "quality_socre": review.score,
@@ -508,6 +508,110 @@ def quality_checker(state: ResearchState) -> dict:
             name = "quality_checker"
         )]
     }
+
+
+
+# ------------------ Routing: Quality Gate ------------------------------
+def quality_gate(state: ResearchState) -> Literal["report_writer", "end"]:
+    """Route back to writer if quality is insufficient."""
+    # Has 2 exit conditions: 
+    # 1) If quality score >= 0.7 or state['iteration'] >=2 -> Report is done
+    # 2) Track max iteration
+    if state['quality_score'] >= 0.7 or state['iteration'] >=2:
+        return "end"
+    
+    return "report_writer" # goes back to report writer and not analyst or research because the analyst and research are done. V.I
+    
+
+# We look at individual agent so we can test it separately
+def demo_individual_search():
+    """Demo just the search agent for testing"""
+    print("Individual Search Agent Test:\n")
+
+    # Test the search agent directly
+    result = search_agent({
+        "search_queries": "LangGraph multi-agent patterns",
+        "findings": []
+    })
+
+    print("Findings from search")
+    for f in result['findings']:
+        print(f"    - {f.get("title", "N/A")}: {f.get("detail", "N/A")[:80]}...")
+
+
+
+
+
+
+
+
+
+# ----------- Build the Full Research System ------------------------------------
+
+def create_research_system():
+
+    """
+    Builds the multi-agent research system graph.
+
+    Flow:
+    1. Supervisor plans search queries
+    2. Search agents run in parallel (Send API)
+    3. Analyst synthesizes findings
+    4. Report writer produces report
+    5. Quality checker reviews - loops back if needed
+    """
+    
+    # Create a graph
+    graph = StateGraph(ResearchState)
+
+    # Add all nodes
+    graph.add_node("supervisor", supervisor)
+    graph.add_node("search_agent", search_agent)
+    graph.add_node("analyst", analyst)
+    graph.add_node("report_writer", report_writer)
+    graph.add_node("quality_checker", quality_checker)
+
+
+    # Edges
+    graph.add_edge(START, "supervisor")
+    
+
+    # Supervisor -> Parallel search agents (dynamic fan-out)
+    graph.add_conditional_edges(
+        "supervisor",
+        dispatch_searches, # Create parallel search tasks using the same API
+        ["search_agent"] # Actual node ~ search agent ~ spawned as much needed to create instances
+    )
+
+    # All search agents -> analyst (fan-in)
+    graph.add_edge("search_agent", "analyst")
+
+    # Analyst -> report writer
+    graph.add_edge("analyst", "report_writer")
+
+    # Report writer -> quality checker
+    graph.add_edge("report_writer", "quality_checker")
+
+    # Quality gate: approve or revise
+    graph.add_conditional_edges(
+        "quality_checker",
+        quality_gate,
+        {"report_writer": "report_writer", "end": END}
+    )
+
+
+    return graph.compile()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -529,4 +633,6 @@ async def run_supervisor():
 
 if __name__ == "__main__":
      #asyncio.run(_demo())
-     asyncio.run(run_supervisor())
+     #asyncio.run(run_supervisor())
+
+    demo_individual_search()
