@@ -22,6 +22,7 @@ import logging
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import Float
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +123,21 @@ class Settings(BaseSettings):
     # ----- LangGraph Configuration -----
     max_tokens: int = 2000
     
-    # ----- Logging -----
+    # ----- Logging Configuration -----
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "json"
 
     # ----- API -----
     api_prefix: str = "/api/v1"
+
+    # ----- Tavily Web Search -----
+    tavily_api_key: str = Field(..., env="TAVILY_API_KEY")
+    max_results: int = 5
+    max_chars_per_results: int = 1500 # keep tool output small
+    search_timeout_s: float = 20 # TavilySearch has no timeout of its own
+    search_attempts: int = 3    # for timeouts, connection errors, 429 and 5xx
+    search_backoff_s: float = 1.0 # waits ~1s, 2s, 4 (+jitter)
+    search_depth: Literal["basic","advanced"] = "advanced" # advanced = 2 credits, basic = 1 credit
 
 
 

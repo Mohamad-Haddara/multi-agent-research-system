@@ -66,3 +66,5 @@ schema.sql
 evals/reports/
 
 llm/function.py
+
+/scratch
